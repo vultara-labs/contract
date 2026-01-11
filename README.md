@@ -6,7 +6,7 @@ Smart contracts for the Vultara Protocol on Base.
 
 | Network | Contract | Address |
 |---------|----------|---------|
-| Base Sepolia | VultaraETHVault | `0xedef77ed8a73d9a6ed9b4309451e5fce6705b677` |
+| Base Sepolia | VultaraETHVault | `0x3C90E5477C9016eec4c48b9886a1Bc3c1c5C5bBa` |
 
 ## Contracts
 

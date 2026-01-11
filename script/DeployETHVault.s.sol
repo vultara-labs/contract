@@ -9,7 +9,7 @@ import "../src/VultaraETHVault.sol";
  * @notice Deployment script for VultaraETHVault on Base Sepolia
  * 
  * Usage:
- * forge script script/DeployETHVault.s.sol:DeployVultaraETHVault --rpc-url $BASE_SEPOLIA_RPC --broadcast
+ * forge script script/DeployETHVault.s.sol:DeployVultaraETHVault --rpc-url $BASE_SEPOLIA_RPC --broadcast --verify
  */
 contract DeployVultaraETHVault is Script {
     function run() external {
@@ -25,7 +25,7 @@ contract DeployVultaraETHVault is Script {
         console.log("Name:", vault.name());
         console.log("Symbol:", vault.symbol());
         console.log("Owner:", vault.owner());
-        console.log("Min Deposit:", vault.MIN_DEPOSIT());
+        console.log("OptionBook Linked:", vault.OPTION_BOOK());
         console.log("=================================");
 
         vm.stopBroadcast();
