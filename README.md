@@ -1,12 +1,19 @@
-# Vultara Smart Contract
+# Vultara Smart Contracts
 
-ERC-4626 Vault contract for the Vultara Protocol on Base.
+Smart contracts for the Vultara Protocol on Base.
 
-## Overview
+## Deployed Contracts
 
-VultaraVault is an ERC-4626 compliant tokenized vault that:
-- Accepts USDC deposits
-- Issues vault shares (vUSDC) representing ownership
+| Network | Contract | Address |
+|---------|----------|---------|
+| Base Sepolia | VultaraETHVault | `0xedef77ed8a73d9a6ed9b4309451e5fce6705b677` |
+
+## Contracts
+
+### VultaraETHVault (Primary)
+Native ETH vault that:
+- Accepts ETH deposits directly (no approval needed)
+- Issues vault shares (vETH) representing ownership
 - Designed for integration with Thetanuts V4 options strategies
 
 ## Tech Stack
@@ -20,11 +27,11 @@ VultaraVault is an ERC-4626 compliant tokenized vault that:
 ```
 contract/
 ├── src/
-│   └── VultaraVault.sol    # Main vault contract
+│   └── VultaraETHVault.sol   # ETH vault (primary)
 ├── test/
-│   └── VultaraVault.t.sol  # Test suite
+│   └── VultaraETHVault.t.sol # Test suite
 ├── script/
-│   └── DeployVultaraVault.s.sol  # Deployment script
+│   └── DeployETHVault.s.sol  # ETH vault deployment
 └── lib/
     ├── forge-std/
     └── openzeppelin-contracts/
@@ -61,31 +68,25 @@ forge test -vv
 cp .env.example .env
 ```
 
-2. Fill in your private key and RPC URL
+2. Fill in your private key and RPC URL (Base Sepolia)
 
-3. Deploy:
+3. Deploy ETH Vault:
 ```bash
 source .env
-forge script script/DeployVultaraVault.s.sol:DeployVultaraVault \
+forge script script/DeployETHVault.s.sol:DeployETHVault \
   --rpc-url $BASE_SEPOLIA_RPC \
   --broadcast \
   --verify
 ```
 
-## Contract Addresses
-
-| Network | Contract | Address |
-|---------|----------|---------|
-| Base Sepolia | VultaraVault | `TBD` |
-| Base Sepolia | USDC | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` |
-
 ## Key Features
 
-- **ERC-4626 Compliant**: Standard vault interface for DeFi composability
+### VultaraETHVault
+- **Native ETH**: No token approvals needed
+- **Simple UX**: Single transaction deposit
 - **Reentrancy Protected**: Using OpenZeppelin's ReentrancyGuard
 - **Ownable**: Admin functions protected by ownership
-- **Performance Fee**: Configurable fee up to 20%
-- **Strategy Ready**: Placeholder for Thetanuts V4 integration
+- **Min Deposit**: 0.001 ETH
 
 ## Security
 
