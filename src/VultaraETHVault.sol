@@ -71,33 +71,73 @@ contract VultaraETHVault is ERC20, Ownable, ReentrancyGuard {
      * @notice Deposit ETH into the vault
      * @dev Mints vault shares 1:1 with ETH deposited. Funds are pooled for strategy execution.
      */
+    function totalAssets() public view returns (uint256) {
+        // Return total managed assets: Cash + WETH + Locked
+        return address(this).balance + IWETH(WETH).balanceOf(address(this)) + lockedInStrategy;
+    }
+
+    /**
+     * @notice Deposit ETH into the vault
+     * @dev Mints vault shares based on current share price. 
+     *      Formula: shares = (amount * totalSupply) / totalAssets
+     */
     function deposit() external payable nonReentrant {
         require(msg.value >= 0.001 ether, "Deposit to small");
         
-        uint256 shares = msg.value;
-        _mint(msg.sender, shares);
-        totalDeposited += msg.value;
+        uint256 assets = msg.value;
+        uint256 shares;
+        uint256 _totalSupply = totalSupply();
         
-        emit DepositReceived(msg.sender, msg.value, shares);
+        if (_totalSupply == 0) {
+            shares = assets; // Initial 1:1
+        } else {
+            // Calculate share price based on assets BEFORE this deposit
+            // Note: address(this).balance already includes msg.value, so we subtract it
+            uint256 totalAssetsBefore = totalAssets() - assets;
+            shares = (assets * _totalSupply) / totalAssetsBefore;
+        }
+        
+        _mint(msg.sender, shares);
+        totalDeposited += assets; // Statistic only
+        
+        emit DepositReceived(msg.sender, assets, shares);
     }
 
     /**
      * @notice Withdraw ETH from the vault
-     * @dev Users can withdraw their share of the pool (if not locked in active strategy)
+     * @dev Burns shares and returns proportional share of the pool (including yield)
      */
     function withdraw(uint256 shares) external nonReentrant {
         require(shares > 0 && balanceOf(msg.sender) >= shares, "Invalid share amount");
         
-        uint256 ethAmount = shares; // 1:1 ratio for simplicity in this version
+        // Calculate underlying ETH value of the shares
+        // Formula: assets = (shares * totalAssets) / totalSupply
+        uint256 ethAmount = (shares * totalAssets()) / totalSupply();
+        
         require(address(this).balance >= ethAmount, "Insufficient liquidity (funds deployed)");
         
         _burn(msg.sender, shares);
-        totalDeposited -= ethAmount;
+        
+        // Update stats (approximate)
+        if (totalDeposited >= ethAmount) {
+             totalDeposited -= ethAmount;
+        }
         
         (bool success, ) = payable(msg.sender).call{value: ethAmount}("");
         require(success, "Transfer failed");
         
         emit WithdrawProcessed(msg.sender, ethAmount, shares);
+    }
+
+    // ============ Helper Views for Frontend ============
+    
+    /**
+     * @notice Convert shares to underlying ETH assets
+     * @dev Use this to show user's real balance (Principal + Yield)
+     */
+    function convertToAssets(uint256 shares) public view returns (uint256) {
+        if (totalSupply() == 0) return shares;
+        return (shares * totalAssets()) / totalSupply();
     }
 
     // ============ Strategy Execution (Thetanuts V4 Integration) ============
