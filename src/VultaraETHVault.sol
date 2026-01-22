@@ -11,7 +11,6 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
  * @dev Accepts native ETH deposits and issues vault shares (vETH).
  *      Simplified version for hackathon demo.
  */
-// ============ Structs (Thetanuts v4) ============
 struct Order {
     address maker;
     uint256 orderExpiryTimestamp;
@@ -28,7 +27,6 @@ struct Order {
     bytes extraOptionData;
 }
 
-// ============ Interfaces ============
 interface IOptionBook {
     function fillOrder(Order calldata order, bytes calldata signature, address referrer) external;
 }
@@ -49,7 +47,6 @@ interface IWETH {
  */
 contract VultaraETHVault is ERC20, Ownable, ReentrancyGuard {
     
-    // ============ Events ============
     event DepositReceived(address indexed user, uint256 ethAmount, uint256 shares);
     event WithdrawProcessed(address indexed user, uint256 ethAmount, uint256 shares);
     event StrategyExecuted(uint256 ethAmount, address indexed optionBook);
@@ -57,23 +54,18 @@ contract VultaraETHVault is ERC20, Ownable, ReentrancyGuard {
     event WETHUnwrapped(uint256 amount);
     event WithdrawalScheduled(address indexed user, uint256 shares);
     
-    // ============ State Variables ============
-    address public constant OPTION_BOOK = 0xd58b814C7Ce700f251722b5555e25aE0fa8169A1; // Base Mainnet OptionBook
-    address public constant WETH = 0x4200000000000000000000000000000000000006; // Base WETH
+    address public constant OPTION_BOOK = 0xd58b814C7Ce700f251722b5555e25aE0fa8169A1;
+    address public constant WETH = 0x4200000000000000000000000000000000000006;
     uint256 public totalDeposited;
     uint256 public lockedInStrategy; // Amount locked in active options positions
     
-    // ============ Constructor ============
     constructor() ERC20("Vultara ETH Vault", "vETH") Ownable(msg.sender) {}
-
-    // ============ Core Vault Functions ============
 
     /**
      * @notice Deposit ETH into the vault
      * @dev Mints vault shares 1:1 with ETH deposited. Funds are pooled for strategy execution.
      */
     function totalAssets() public view returns (uint256) {
-        // Return total managed assets: Cash + WETH + Locked
         return address(this).balance + IWETH(WETH).balanceOf(address(this)) + lockedInStrategy;
     }
 
@@ -104,7 +96,6 @@ contract VultaraETHVault is ERC20, Ownable, ReentrancyGuard {
         emit DepositReceived(msg.sender, assets, shares);
     }
 
-    // ============ Withdrawal Queue (Mainnet Safe) ============
     mapping(address => uint256) public pendingWithdrawals;
     uint256 public totalPendingShares;
 
@@ -115,8 +106,6 @@ contract VultaraETHVault is ERC20, Ownable, ReentrancyGuard {
     function scheduleWithdraw(uint256 shares) external nonReentrant {
         require(shares > 0 && balanceOf(msg.sender) >= shares, "Invalid share amount");
         require(pendingWithdrawals[msg.sender] == 0, "Withdrawal already scheduled. Claim or Cancel first.");
-
-        // Move shares to vault (Escrow)
         _transfer(msg.sender, address(this), shares);
         
         pendingWithdrawals[msg.sender] = shares;
@@ -152,14 +141,10 @@ contract VultaraETHVault is ERC20, Ownable, ReentrancyGuard {
         
         require(address(this).balance >= ethAmount, "Insufficient liquidity. Come back Friday!");
         
-        // Cleanup
         delete pendingWithdrawals[msg.sender];
         totalPendingShares -= shares;
-        
-        // Burn the escrowed shares
         _burn(address(this), shares);
         
-        // Update stats
         if (totalDeposited >= ethAmount) {
              totalDeposited -= ethAmount;
         }
@@ -170,7 +155,6 @@ contract VultaraETHVault is ERC20, Ownable, ReentrancyGuard {
         emit WithdrawProcessed(msg.sender, ethAmount, shares);
     }
     
-    // ============ Helper for Manager ============
     /** 
      * @notice Check how much ETH is 'free' to be deployed in strategy, respecting withdrawal requests.
      * @dev Manager should call this before executeStrategy.
@@ -186,10 +170,6 @@ contract VultaraETHVault is ERC20, Ownable, ReentrancyGuard {
         return totalEth - pendingEthNeeded;
     }
 
-    // ============ Strategy Execution (Thetanuts V4 Integration) ============
-
-    // ============ Helper Views for Frontend ============
-    
     /**
      * @notice Convert shares to underlying ETH assets
      * @dev Use this to show user's real balance (Principal + Yield)
@@ -198,8 +178,6 @@ contract VultaraETHVault is ERC20, Ownable, ReentrancyGuard {
         if (totalSupply() == 0) return shares;
         return (shares * totalAssets()) / totalSupply();
     }
-
-    // ============ Strategy Execution (Thetanuts V4 Integration) ============
 
     /**
      * @notice Wrap ETH to WETH for Thetanuts V4 compatibility
@@ -273,7 +251,6 @@ contract VultaraETHVault is ERC20, Ownable, ReentrancyGuard {
         lockedInStrategy -= amount;
     }
 
-    // ============ View Functions ============
     function getUserBalance(address user) external view returns (uint256) {
         return balanceOf(user); // 1:1
     }
