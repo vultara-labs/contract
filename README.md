@@ -83,7 +83,9 @@ forge script script/DeployETHVault.s.sol:DeployETHVault \
 
 ### VultaraETHVault
 - **Native ETH**: No token approvals needed
-- **Simple UX**: Single transaction deposit
+- **Dynamic Share Price (Real Yield)**: Shares appreciate in value as strategies earn premiums (ERC-4626 style).
+- **Withdrawal Queue System**: Solves liquidity lock issues by queuing withdrawals for the next epoch.
+- **Simple UX**: Single transaction deposit.
 - **Reentrancy Protected**: Using OpenZeppelin's ReentrancyGuard
 - **Ownable**: Admin functions protected by ownership
 - **Min Deposit**: 0.001 ETH
