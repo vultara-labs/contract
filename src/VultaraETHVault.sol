@@ -55,6 +55,7 @@ contract VultaraETHVault is ERC20, Ownable, ReentrancyGuard {
     event StrategyExecuted(uint256 ethAmount, address indexed optionBook);
     event WETHWrapped(uint256 amount);
     event WETHUnwrapped(uint256 amount);
+    event WithdrawalScheduled(address indexed user, uint256 shares);
     
     // ============ State Variables ============
     address public constant OPTION_BOOK = 0xd58b814C7Ce700f251722b5555e25aE0fa8169A1; // Base Mainnet OptionBook
@@ -103,22 +104,62 @@ contract VultaraETHVault is ERC20, Ownable, ReentrancyGuard {
         emit DepositReceived(msg.sender, assets, shares);
     }
 
+    // ============ Withdrawal Queue (Mainnet Safe) ============
+    mapping(address => uint256) public pendingWithdrawals;
+    uint256 public totalPendingShares;
+
     /**
-     * @notice Withdraw ETH from the vault
-     * @dev Burns shares and returns proportional share of the pool (including yield)
+     * @notice Schedule a withdrawal for the next window (Friday)
+     * @dev Transfers shares to the vault as escrow. These shares still earn yield until claimed.
      */
-    function withdraw(uint256 shares) external nonReentrant {
+    function scheduleWithdraw(uint256 shares) external nonReentrant {
         require(shares > 0 && balanceOf(msg.sender) >= shares, "Invalid share amount");
+        require(pendingWithdrawals[msg.sender] == 0, "Withdrawal already scheduled. Claim or Cancel first.");
+
+        // Move shares to vault (Escrow)
+        _transfer(msg.sender, address(this), shares);
         
-        // Calculate underlying ETH value of the shares
-        // Formula: assets = (shares * totalAssets) / totalSupply
+        pendingWithdrawals[msg.sender] = shares;
+        totalPendingShares += shares;
+        
+        emit WithdrawalScheduled(msg.sender, shares);
+    }
+
+    /**
+     * @notice Cancel a scheduled withdrawal
+     * @dev Returns shares to user
+     */
+    function cancelWithdraw() external nonReentrant {
+        uint256 shares = pendingWithdrawals[msg.sender];
+        require(shares > 0, "No pending withdrawal");
+
+        delete pendingWithdrawals[msg.sender];
+        totalPendingShares -= shares;
+
+        _transfer(address(this), msg.sender, shares);
+    }
+
+    /**
+     * @notice Claim pending withdrawal (Call this on Friday after options expiry)
+     * @dev Burns escrowed shares and sends ETH. Fails if vault has insufficient liquidity.
+     */
+    function claimWithdraw() external nonReentrant {
+        uint256 shares = pendingWithdrawals[msg.sender];
+        require(shares > 0, "No pending withdrawal");
+        
+        // Calculate ETH value using CURRENT share price (User earned yield while waiting!)
         uint256 ethAmount = (shares * totalAssets()) / totalSupply();
         
-        require(address(this).balance >= ethAmount, "Insufficient liquidity (funds deployed)");
+        require(address(this).balance >= ethAmount, "Insufficient liquidity. Come back Friday!");
         
-        _burn(msg.sender, shares);
+        // Cleanup
+        delete pendingWithdrawals[msg.sender];
+        totalPendingShares -= shares;
         
-        // Update stats (approximate)
+        // Burn the escrowed shares
+        _burn(address(this), shares);
+        
+        // Update stats
         if (totalDeposited >= ethAmount) {
              totalDeposited -= ethAmount;
         }
@@ -128,6 +169,24 @@ contract VultaraETHVault is ERC20, Ownable, ReentrancyGuard {
         
         emit WithdrawProcessed(msg.sender, ethAmount, shares);
     }
+    
+    // ============ Helper for Manager ============
+    /** 
+     * @notice Check how much ETH is 'free' to be deployed in strategy, respecting withdrawal requests.
+     * @dev Manager should call this before executeStrategy.
+     */
+    function getInvestableAmount() public view returns (uint256) {
+        uint256 totalEth = address(this).balance;
+        
+        // Calculate estimated ETH needed for pending withdrawals
+        // Note: This is an estimate because share price might change slightly
+        uint256 pendingEthNeeded = (totalPendingShares * totalAssets()) / totalSupply();
+        
+        if (pendingEthNeeded >= totalEth) return 0;
+        return totalEth - pendingEthNeeded;
+    }
+
+    // ============ Strategy Execution (Thetanuts V4 Integration) ============
 
     // ============ Helper Views for Frontend ============
     
