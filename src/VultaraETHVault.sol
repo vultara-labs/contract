@@ -33,6 +33,14 @@ interface IOptionBook {
     function fillOrder(Order calldata order, bytes calldata signature, address referrer) external;
 }
 
+interface IWETH {
+    function deposit() external payable;
+    function withdraw(uint256 wad) external;
+    function approve(address guy, uint256 wad) external returns (bool);
+    function balanceOf(address owner) external view returns (uint256);
+    function transfer(address dst, uint256 wad) external returns (bool);
+}
+
 /**
  * @title VultaraETHVault
  * @notice ETH Vault for Vultara Protocol on Base
@@ -45,10 +53,14 @@ contract VultaraETHVault is ERC20, Ownable, ReentrancyGuard {
     event DepositReceived(address indexed user, uint256 ethAmount, uint256 shares);
     event WithdrawProcessed(address indexed user, uint256 ethAmount, uint256 shares);
     event StrategyExecuted(uint256 ethAmount, address indexed optionBook);
+    event WETHWrapped(uint256 amount);
+    event WETHUnwrapped(uint256 amount);
     
     // ============ State Variables ============
     address public constant OPTION_BOOK = 0xd58b814C7Ce700f251722b5555e25aE0fa8169A1; // Base Mainnet OptionBook
+    address public constant WETH = 0x4200000000000000000000000000000000000006; // Base WETH
     uint256 public totalDeposited;
+    uint256 public lockedInStrategy; // Amount locked in active options positions
     
     // ============ Constructor ============
     constructor() ERC20("Vultara ETH Vault", "vETH") Ownable(msg.sender) {}
@@ -88,30 +100,78 @@ contract VultaraETHVault is ERC20, Ownable, ReentrancyGuard {
         emit WithdrawProcessed(msg.sender, ethAmount, shares);
     }
 
-    // ============ Strategy Execution (Thetanuts Integration) ============
+    // ============ Strategy Execution (Thetanuts V4 Integration) ============
 
     /**
-     * @notice Execute a Thetanuts v4 Strategy by filling an order
+     * @notice Wrap ETH to WETH for Thetanuts V4 compatibility
+     * @param amount Amount of ETH to wrap
+     */
+    function wrapETH(uint256 amount) internal {
+        require(address(this).balance >= amount, "Insufficient ETH to wrap");
+        IWETH(WETH).deposit{value: amount}();
+        emit WETHWrapped(amount);
+    }
+
+    /**
+     * @notice Unwrap WETH back to ETH
+     * @param amount Amount of WETH to unwrap
+     */
+    function unwrapWETH(uint256 amount) internal {
+        require(IWETH(WETH).balanceOf(address(this)) >= amount, "Insufficient WETH");
+        IWETH(WETH).withdraw(amount);
+        emit WETHUnwrapped(amount);
+    }
+
+    /**
+     * @notice Execute a Thetanuts V4 Strategy by filling an order
      * @dev Only owner/manager can trigger this to prevent malicious draining via bad orders
      * @param order The Thetanuts Order struct
      * @param signature The maker's signature for the order
+     * @param ethAmount Amount of ETH to use as collateral (will be wrapped to WETH)
      */
-    function executeStrategy(Order calldata order, bytes calldata signature) external onlyOwner {
-        // Validation: Ensure we are filling an ETH-collateralized order (if puts) or using ETH (if calls)
-        // For Hackathon: We assume the strategy uses ETH as collateral directly or wraps it.
-        // Thetanuts v4 usually requires WETH or similar for ERC20 compatibility.
-        // We might need to wrap ETH to WETH here if OptionBook expects WETH.
-        // Checking OptionBook address... 0xd58b...
+    function executeStrategy(
+        Order calldata order, 
+        bytes calldata signature,
+        uint256 ethAmount
+    ) external onlyOwner nonReentrant {
+        require(ethAmount > 0, "Amount must be > 0");
+        require(address(this).balance >= ethAmount, "Insufficient vault balance");
         
-        // Approve OptionBook to spend vault funds (if needed by the specific strategy implementation)
-        // IOptionBook(OPTION_BOOK).fillOrder(order, signature, address(this));
+        // Validate order parameters for security
+        require(order.collateral == WETH, "Only WETH collateral supported");
+        require(order.expiry > block.timestamp, "Order already expired");
+        require(order.orderExpiryTimestamp > block.timestamp, "Order signature expired");
         
-        // NOTE: For full v4 integration, we need to handle Asset Wrapping (WETH) because OptionBook
-        // usually works with ERC20 tokens. Using raw ETH might fail if the collateral field is WETH.
+        // Step 1: Wrap ETH to WETH for Thetanuts V4 compatibility
+        wrapETH(ethAmount);
         
-        // Simulating the "lock" for now as direct integration requires WETH wrapping logic 
-        // which adds complexity (IWETH interface, deposit, approve).
-        // To be 100% compliant we should add IWETH interaction.
+        // Step 2: Approve OptionBook to spend WETH
+        bool approved = IWETH(WETH).approve(OPTION_BOOK, ethAmount);
+        require(approved, "WETH approval failed");
+        
+        // Step 3: Execute the fillOrder on Thetanuts V4 OptionBook
+        IOptionBook(OPTION_BOOK).fillOrder(order, signature, address(this));
+        
+        // Track locked amount
+        lockedInStrategy += ethAmount;
+        
+        emit StrategyExecuted(ethAmount, OPTION_BOOK);
+    }
+
+    /**
+     * @notice Unlock funds after option epoch expires
+     * @dev Called by owner when options expire worthless or are settled
+     * @param amount Amount to unlock and unwrap back to ETH
+     */
+    function unlockFunds(uint256 amount) external onlyOwner {
+        require(amount <= lockedInStrategy, "Amount exceeds locked funds");
+        
+        uint256 wethBalance = IWETH(WETH).balanceOf(address(this));
+        if (wethBalance >= amount) {
+            unwrapWETH(amount);
+        }
+        
+        lockedInStrategy -= amount;
     }
 
     // ============ View Functions ============
@@ -120,8 +180,17 @@ contract VultaraETHVault is ERC20, Ownable, ReentrancyGuard {
     }
 
     function getTVL() external view returns (uint256) {
+        return address(this).balance + IWETH(WETH).balanceOf(address(this));
+    }
+
+    function getAvailableLiquidity() external view returns (uint256) {
         return address(this).balance;
+    }
+
+    function getLockedAmount() external view returns (uint256) {
+        return lockedInStrategy;
     }
 
     receive() external payable {}
 }
+
