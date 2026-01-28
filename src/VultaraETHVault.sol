@@ -206,6 +206,17 @@ contract VultaraETHVault is ERC20, Ownable, ReentrancyGuard {
      * @param signature The maker's signature for the order
      * @param ethAmount Amount of ETH to use as collateral (will be wrapped to WETH)
      */
+    uint256 public activeStrikePrice;
+    uint256 public activeExpiry; // Timestamp
+    uint256 public lastEpochYield; // Basis points (e.g. 500 = 5%)
+
+    /**
+     * @notice Execute a Thetanuts V4 Strategy by filling an order
+     * @dev Only owner/manager can trigger this to prevent malicious draining via bad orders
+     * @param order The Thetanuts Order struct
+     * @param signature The maker's signature for the order
+     * @param ethAmount Amount of ETH to use as collateral (will be wrapped to WETH)
+     */
     function executeStrategy(
         Order calldata order, 
         bytes calldata signature,
@@ -229,26 +240,51 @@ contract VultaraETHVault is ERC20, Ownable, ReentrancyGuard {
         // Step 3: Execute the fillOrder on Thetanuts V4 OptionBook
         IOptionBook(OPTION_BOOK).fillOrder(order, signature, address(this));
         
-        // Track locked amount
+        // Track locked amount and strategy details
         lockedInStrategy += ethAmount;
+        activeStrikePrice = order.strikes.length > 0 ? order.strikes[0] : 0;
+        activeExpiry = order.expiry;
         
         emit StrategyExecuted(ethAmount, OPTION_BOOK);
     }
 
     /**
-     * @notice Unlock funds after option epoch expires
-     * @dev Called by owner when options expire worthless or are settled
-     * @param amount Amount to unlock and unwrap back to ETH
+     * @notice Settle funds after option epoch expires
+     * @dev Called by owner to realize profits/losses and unwrap WETH
+     * @param amountReturned Amount of WETH received back from strategy
      */
-    function unlockFunds(uint256 amount) external onlyOwner {
-        require(amount <= lockedInStrategy, "Amount exceeds locked funds");
-        
+    function settleStrategy(uint256 amountReturned) external onlyOwner {
         uint256 wethBalance = IWETH(WETH).balanceOf(address(this));
-        if (wethBalance >= amount) {
-            unwrapWETH(amount);
+        
+        // Ensure we have enough WETH to unwrap (sanity check)
+        uint256 amountToUnwrap = amountReturned > wethBalance ? wethBalance : amountReturned;
+        
+        if (amountToUnwrap > 0) {
+            unwrapWETH(amountToUnwrap);
         }
         
-        lockedInStrategy -= amount;
+        // Calculate Yield (Simplified for Demo: Yield based on return vs principal)
+        // If amountReturned > lockedInStrategy, we made profit.
+        if (lockedInStrategy > 0) {
+            if (amountReturned > lockedInStrategy) {
+                uint256 profit = amountReturned - lockedInStrategy;
+                // Yield BPS = (Profit * 10000) / Principal
+                lastEpochYield = (profit * 10000) / lockedInStrategy;
+            } else {
+                lastEpochYield = 0; // No profit or loss
+            }
+        }
+        
+        // Reset locked amount (Assuming full settlement)
+        if (amountReturned >= lockedInStrategy) {
+            lockedInStrategy = 0;
+        } else {
+            lockedInStrategy -= amountReturned;
+        }
+
+        // Reset active strategy data
+        activeStrikePrice = 0;
+        activeExpiry = 0;
     }
 
     function getUserBalance(address user) external view returns (uint256) {
