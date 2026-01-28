@@ -75,7 +75,7 @@ contract VultaraETHVault is ERC20, Ownable, ReentrancyGuard {
      *      Formula: shares = (amount * totalSupply) / totalAssets
      */
     function deposit() external payable nonReentrant {
-        require(msg.value >= 0.001 ether, "Deposit to small");
+        require(msg.value >= 0.001 ether, "Deposit too small");
         
         uint256 assets = msg.value;
         uint256 shares;
