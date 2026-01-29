@@ -89,6 +89,7 @@ forge script script/DeployETHVault.s.sol:DeployETHVault \
 - **Reentrancy Protected**: Using OpenZeppelin's ReentrancyGuard
 - **Ownable**: Admin functions protected by ownership
 - **Min Deposit**: 0.001 ETH
+- **Performance Fee**: 10% on Profits (Adjustable, Max 20%). Configurable fee recipient.
 
 ## Security
 

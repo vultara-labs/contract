@@ -59,7 +59,17 @@ contract VultaraETHVault is ERC20, Ownable, ReentrancyGuard {
     uint256 public totalDeposited;
     uint256 public lockedInStrategy; // Amount locked in active options positions
     
-    constructor() ERC20("Vultara ETH Vault", "vETH") Ownable(msg.sender) {}
+    // Performance Fee Config
+    uint256 public performanceFeeBps = 1000; // 10% (Basis Points: 1000/10000)
+    address public feeRecipient;
+
+    event PerformanceFeeUpdated(uint256 newFeeBps);
+    event FeeRecipientUpdated(address newRecipient);
+    event PerformanceFeeTaken(uint256 profit, uint256 fee);
+
+    constructor() ERC20("Vultara ETH Vault", "vETH") Ownable(msg.sender) {
+        feeRecipient = msg.sender;
+    }
 
     /**
      * @notice Deposit ETH into the vault
@@ -249,6 +259,24 @@ contract VultaraETHVault is ERC20, Ownable, ReentrancyGuard {
     }
 
     /**
+     * @notice Set performance fee (Max 20%)
+     */
+    function setPerformanceFee(uint256 _bps) external onlyOwner {
+        require(_bps <= 2000, "Fee too high (max 20%)");
+        performanceFeeBps = _bps;
+        emit PerformanceFeeUpdated(_bps);
+    }
+
+    /**
+     * @notice Set fee recipient address
+     */
+    function setFeeRecipient(address _recipient) external onlyOwner {
+        require(_recipient != address(0), "Invalid address");
+        feeRecipient = _recipient;
+        emit FeeRecipientUpdated(_recipient);
+    }
+
+    /**
      * @notice Settle funds after option epoch expires
      * @dev Called by owner to realize profits/losses and unwrap WETH
      * @param amountReturned Amount of WETH received back from strategy
@@ -263,12 +291,31 @@ contract VultaraETHVault is ERC20, Ownable, ReentrancyGuard {
             unwrapWETH(amountToUnwrap);
         }
         
-        // Calculate Yield (Simplified for Demo: Yield based on return vs principal)
+    // Calculate Yield (Simplified for Demo: Yield based on return vs principal)
         // If amountReturned > lockedInStrategy, we made profit.
         if (lockedInStrategy > 0) {
             if (amountReturned > lockedInStrategy) {
                 uint256 profit = amountReturned - lockedInStrategy;
-                // Yield BPS = (Profit * 10000) / Principal
+                
+                // Deduct Performance Fee
+                if (performanceFeeBps > 0) {
+                    uint256 fee = (profit * performanceFeeBps) / 10000;
+                    if (fee > 0 && address(this).balance >= fee) {
+                         // Transfer fee to recipient
+                        (bool success, ) = payable(feeRecipient).call{value: fee}("");
+                        if (success) {
+                            profit -= fee; // Reduce profit remaining in vault
+                            emit PerformanceFeeTaken(profit + fee, fee);
+                            
+                            // Adjust amountReturned effectively to reflect net profit in system
+                             // Note: We already unwrapped EVERYTHING above. 
+                             // So address(this).balance has the full amount.
+                             // By sending `fee` out, the `totalAssets()` naturally drops by `fee`.
+                        }
+                    }
+                }
+
+                // Yield BPS = (Net Profit * 10000) / Principal
                 lastEpochYield = (profit * 10000) / lockedInStrategy;
             } else {
                 lastEpochYield = 0; // No profit or loss
