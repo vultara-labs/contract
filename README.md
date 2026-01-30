@@ -1,12 +1,12 @@
 # Vultara Smart Contracts
 
-Smart contracts for the Vultara Protocol on Base.
+Smart contracts for the Vultara Protocol on Base Mainnet.
 
 ## Deployed Contracts
 
 | Network | Contract | Address |
 |---------|----------|---------|
-| Base Sepolia | VultaraETHVault | `0x3C90E5477C9016eec4c48b9886a1Bc3c1c5C5bBa` |
+| Base Mainnet | VultaraETHVault | `0xEe0fA979928eb331050EDC0B2b027b97d0144F5a` |
 
 ## Contracts
 
@@ -14,7 +14,7 @@ Smart contracts for the Vultara Protocol on Base.
 Native ETH vault that:
 - Accepts ETH deposits directly (no approval needed)
 - Issues vault shares (vETH) representing ownership
-- Designed for integration with Thetanuts V4 options strategies
+- Integrates with Thetanuts V4 options strategies
 
 ## Tech Stack
 
@@ -61,35 +61,34 @@ forge build
 forge test -vv
 ```
 
-### Deploy to Base Sepolia
+### Deploy to Base Mainnet
 
-1. Copy environment file:
+1. Set your private key:
 ```bash
-cp .env.example .env
+export PRIVATE_KEY=0x...
 ```
 
-2. Fill in your private key and RPC URL (Base Sepolia)
-
-3. Deploy ETH Vault:
+2. Deploy ETH Vault:
 ```bash
-source .env
-forge script script/DeployETHVault.s.sol:DeployETHVault \
-  --rpc-url $BASE_SEPOLIA_RPC \
-  --broadcast \
-  --verify
+forge create --rpc-url https://mainnet.base.org --private-key $PRIVATE_KEY src/VultaraETHVault.sol:VultaraETHVault --broadcast
+```
+
+3. Verify on Basescan (optional):
+```bash
+forge verify-contract <DEPLOYED_ADDRESS> src/VultaraETHVault.sol:VultaraETHVault --chain base --etherscan-api-key <API_KEY>
 ```
 
 ## Key Features
 
 ### VultaraETHVault
 - **Native ETH**: No token approvals needed
-- **Dynamic Share Price (Real Yield)**: Shares appreciate in value as strategies earn premiums (ERC-4626 style).
-- **Withdrawal Queue System**: Solves liquidity lock issues by queuing withdrawals for the next epoch.
-- **Simple UX**: Single transaction deposit.
+- **Dynamic Share Price (Real Yield)**: Shares appreciate in value as strategies earn premiums (ERC-4626 style)
+- **Withdrawal Queue System**: Solves liquidity lock issues by queuing withdrawals for the next epoch
+- **Simple UX**: Single transaction deposit
 - **Reentrancy Protected**: Using OpenZeppelin's ReentrancyGuard
 - **Ownable**: Admin functions protected by ownership
 - **Min Deposit**: 0.001 ETH
-- **Performance Fee**: 10% on Profits (Adjustable, Max 20%). Configurable fee recipient.
+- **Performance Fee**: 10% on Profits (Adjustable, Max 20%)
 
 ## Security
 

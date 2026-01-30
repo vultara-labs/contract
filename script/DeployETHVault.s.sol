@@ -6,10 +6,10 @@ import "../src/VultaraETHVault.sol";
 
 /**
  * @title DeployVultaraETHVault
- * @notice Deployment script for VultaraETHVault on Base Sepolia
+ * @notice Deployment script for VultaraETHVault on Base Mainnet
  * 
  * Usage:
- * forge script script/DeployETHVault.s.sol:DeployVultaraETHVault --rpc-url $BASE_SEPOLIA_RPC --broadcast --verify
+ * forge script script/DeployETHVault.s.sol:DeployVultaraETHVault --rpc-url https://mainnet.base.org --broadcast --verify
  */
 contract DeployVultaraETHVault is Script {
     function run() external {
