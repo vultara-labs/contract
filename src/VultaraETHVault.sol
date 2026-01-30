@@ -209,16 +209,12 @@ contract VultaraETHVault is ERC20, Ownable, ReentrancyGuard {
         emit WETHUnwrapped(amount);
     }
 
-    /**
-     * @notice Execute a Thetanuts V4 Strategy by filling an order
-     * @dev Only owner/manager can trigger this to prevent malicious draining via bad orders
-     * @param order The Thetanuts Order struct
-     * @param signature The maker's signature for the order
-     * @param ethAmount Amount of ETH to use as collateral (will be wrapped to WETH)
-     */
+    /// @notice Current active strike price from the latest strategy
     uint256 public activeStrikePrice;
-    uint256 public activeExpiry; // Timestamp
-    uint256 public lastEpochYield; // Basis points (e.g. 500 = 5%)
+    /// @notice Current active expiry timestamp from the latest strategy
+    uint256 public activeExpiry;
+    /// @notice Yield from the last epoch in basis points (e.g. 500 = 5%)
+    uint256 public lastEpochYield;
 
     /**
      * @notice Execute a Thetanuts V4 Strategy by filling an order
