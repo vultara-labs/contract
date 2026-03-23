@@ -145,24 +145,26 @@ contract VultaraETHVault is ERC20, Ownable, ReentrancyGuard {
     function claimWithdraw() external nonReentrant {
         uint256 shares = pendingWithdrawals[msg.sender];
         require(shares > 0, "No pending withdrawal");
-        
+
         // Calculate ETH value using CURRENT share price (User earned yield while waiting!)
         uint256 ethAmount = (shares * totalAssets()) / totalSupply();
-        
+
         require(address(this).balance >= ethAmount, "Insufficient liquidity. Come back Friday!");
-        
+
+        // CEI: All state changes before external call
         delete pendingWithdrawals[msg.sender];
         totalPendingShares -= shares;
         _burn(address(this), shares);
-        
+
         if (totalDeposited >= ethAmount) {
              totalDeposited -= ethAmount;
         }
-        
+
+        emit WithdrawProcessed(msg.sender, ethAmount, shares);
+
+        // External call LAST
         (bool success, ) = payable(msg.sender).call{value: ethAmount}("");
         require(success, "Transfer failed");
-        
-        emit WithdrawProcessed(msg.sender, ethAmount, shares);
     }
     
     /** 
@@ -170,12 +172,14 @@ contract VultaraETHVault is ERC20, Ownable, ReentrancyGuard {
      * @dev Manager should call this before executeStrategy.
      */
     function getInvestableAmount() public view returns (uint256) {
+        uint256 _totalSupply = totalSupply();
         uint256 totalEth = address(this).balance;
-        
+
+        if (_totalSupply == 0) return totalEth;
+
         // Calculate estimated ETH needed for pending withdrawals
-        // Note: This is an estimate because share price might change slightly
-        uint256 pendingEthNeeded = (totalPendingShares * totalAssets()) / totalSupply();
-        
+        uint256 pendingEthNeeded = (totalPendingShares * totalAssets()) / _totalSupply;
+
         if (pendingEthNeeded >= totalEth) return 0;
         return totalEth - pendingEthNeeded;
     }
@@ -185,8 +189,9 @@ contract VultaraETHVault is ERC20, Ownable, ReentrancyGuard {
      * @dev Use this to show user's real balance (Principal + Yield)
      */
     function convertToAssets(uint256 shares) public view returns (uint256) {
-        if (totalSupply() == 0) return shares;
-        return (shares * totalAssets()) / totalSupply();
+        uint256 _totalSupply = totalSupply();
+        if (_totalSupply == 0) return 0;
+        return (shares * totalAssets()) / _totalSupply;
     }
 
     /**
@@ -245,7 +250,10 @@ contract VultaraETHVault is ERC20, Ownable, ReentrancyGuard {
         
         // Step 3: Execute the fillOrder on Thetanuts V4 OptionBook
         IOptionBook(OPTION_BOOK).fillOrder(order, signature, address(this));
-        
+
+        // Step 4: Reset approval to prevent dangling allowance
+        IWETH(WETH).approve(OPTION_BOOK, 0);
+
         // Track locked amount and strategy details
         lockedInStrategy += ethAmount;
         activeStrikePrice = order.strikes.length > 0 ? order.strikes[0] : 0;
@@ -277,37 +285,30 @@ contract VultaraETHVault is ERC20, Ownable, ReentrancyGuard {
      * @dev Called by owner to realize profits/losses and unwrap WETH
      * @param amountReturned Amount of WETH received back from strategy
      */
-    function settleStrategy(uint256 amountReturned) external onlyOwner {
+    function settleStrategy(uint256 amountReturned) external onlyOwner nonReentrant {
         uint256 wethBalance = IWETH(WETH).balanceOf(address(this));
-        
+
         // Ensure we have enough WETH to unwrap (sanity check)
         uint256 amountToUnwrap = amountReturned > wethBalance ? wethBalance : amountReturned;
-        
+
         if (amountToUnwrap > 0) {
             unwrapWETH(amountToUnwrap);
         }
-        
-    // Calculate Yield (Simplified for Demo: Yield based on return vs principal)
-        // If amountReturned > lockedInStrategy, we made profit.
+
+        // CEI: Calculate all values and update state BEFORE external call
+        uint256 fee = 0;
+
         if (lockedInStrategy > 0) {
             if (amountReturned > lockedInStrategy) {
                 uint256 profit = amountReturned - lockedInStrategy;
-                
-                // Deduct Performance Fee
+
+                // Calculate Performance Fee
                 if (performanceFeeBps > 0) {
-                    uint256 fee = (profit * performanceFeeBps) / 10000;
+                    fee = (profit * performanceFeeBps) / 10000;
                     if (fee > 0 && address(this).balance >= fee) {
-                         // Transfer fee to recipient
-                        (bool success, ) = payable(feeRecipient).call{value: fee}("");
-                        if (success) {
-                            profit -= fee; // Reduce profit remaining in vault
-                            emit PerformanceFeeTaken(profit + fee, fee);
-                            
-                            // Adjust amountReturned effectively to reflect net profit in system
-                             // Note: We already unwrapped EVERYTHING above. 
-                             // So address(this).balance has the full amount.
-                             // By sending `fee` out, the `totalAssets()` naturally drops by `fee`.
-                        }
+                        profit -= fee;
+                    } else {
+                        fee = 0;
                     }
                 }
 
@@ -317,7 +318,7 @@ contract VultaraETHVault is ERC20, Ownable, ReentrancyGuard {
                 lastEpochYield = 0; // No profit or loss
             }
         }
-        
+
         // Reset locked amount (Assuming full settlement)
         if (amountReturned >= lockedInStrategy) {
             lockedInStrategy = 0;
@@ -328,6 +329,13 @@ contract VultaraETHVault is ERC20, Ownable, ReentrancyGuard {
         // Reset active strategy data
         activeStrikePrice = 0;
         activeExpiry = 0;
+
+        // External call LAST: Transfer fee to recipient
+        if (fee > 0) {
+            emit PerformanceFeeTaken(amountReturned - lockedInStrategy, fee);
+            (bool success, ) = payable(feeRecipient).call{value: fee}("");
+            require(success, "Fee transfer failed");
+        }
     }
 
     function getUserBalance(address user) external view returns (uint256) {
@@ -335,7 +343,7 @@ contract VultaraETHVault is ERC20, Ownable, ReentrancyGuard {
     }
 
     function getTVL() external view returns (uint256) {
-        return address(this).balance + IWETH(WETH).balanceOf(address(this));
+        return totalAssets();
     }
 
     function getAvailableLiquidity() external view returns (uint256) {
